@@ -158,6 +158,7 @@ async function cancel(message = '취소했습니다. 진단 JSON에서 이전 �
  const current = run;
  if (!current) return;
  run = null;
+ if (current.phase === 'drift') { $('calibration').hidden = true; $('result').textContent = '드리프트 보정을 취소했습니다. 기존 보정은 유지됩니다.'; return; }
  targetEvent('cancel', null, message);
  current.waiter?.reject(Error('cancelled'));
  $('calibration').hidden = true;
@@ -234,23 +235,48 @@ $('start').onclick = async () => {
   let result;
   for (let i = 0; i < plan.validation_points.length; i++) {
    current.phase = 'validate'; current.index = i;
-   const point = plan.validation_points[i], message = `3단계 · 대각선 검증 ${i + 1} / 4\n점을 계속 바라보세요. 실패가 반복되면 취소하고 9점부터 다시 보정하세요.`;
+   const point = plan.validation_points[i], message = `3단계 · 대각선 검증 ${i + 1} / 4 (기준: ${plan.tolerance})\n점을 계속 바라보세요. 실패가 반복되면 취소하고 9점부터 다시 보정하세요.`;
    show(message, point);
    result = await attempt(async () => { await pause(900); check(); return cal({action: 'validate', validation_index: i, collect_all: true, session_id: current.session}); }, message, point);
   }
   if (!result?.calibrated) {
    check(); run = null; $('calibration').hidden = true; $('cursor').hidden = true;
    const errors = result?.validation_errors || [];
-   const message = `4점 검증 기록 완료 · 보정 실패\n${errors.map((value, i) => `${i+1}번: ${value.toFixed(3)} / 기준 0.120`).join('\n')}\n검출 후보와 카메라 위치를 확인한 뒤 새로 보정하세요.`;
+   const passes = result?.validation_passes || [];
+   const message = `4점 검증 기록 완료 · 보정 실패 (기준: ${result?.tolerance || '거리 0.120'})\n${errors.map((value, i) => `${i+1}번: 거리 ${value.toFixed(3)} · ${passes[i] ? '통과' : '실패'}`).join('\n')}\n검출 후보와 카메라 위치를 확인한 뒤 새로 보정하세요.`;
    $('result').textContent = message; targetEvent('complete', null, message);
    $('start').disabled = $('fullscreen').disabled = false; return;
   }
   check(); run = null;
   targetEvent('complete', null, '보정 완료');
   $('calibration').hidden = true;
-  $('result').textContent = `완료 · 대각선 최대 정규 좌표 오차 ${result.validation_error.toFixed(3)} / 기준 0.120\n노란 커서를 눈으로 움직여보세요. 점별 픽셀 오차는 진단 JSON에 있습니다.`;
+  $('result').textContent = `완료 · 대각선 최대 정규 좌표 오차 ${result.validation_error.toFixed(3)} · 기준 ${result.tolerance}${result.excluded_point != null ? `\n9점 중 ${result.excluded_point + 1}번 점은 다른 점과 맞지 않아 제외했습니다.` : ''}\n노란 커서를 눈으로 움직여보세요. 시간이 지나 어긋나면 '드리프트 보정'을 누르세요.`;
   $('start').disabled = $('fullscreen').disabled = false; $('start').focus();
  } catch (error) { if (run === current) await cancel(error.message); }
+};
+let regionGrid = null;
+function drawRegions(grid) {
+ const key = grid?.join('x');
+ if (!grid || key === regionGrid) return;
+ regionGrid = key;
+ $('regions').style.gridTemplateColumns = `repeat(${grid[0]}, 1fr)`;
+ $('regions').style.gridTemplateRows = `repeat(${grid[1]}, 1fr)`;
+ $('regions').replaceChildren(...Array.from({length: grid[0] * grid[1]}, () => document.createElement('div')));
+}
+$('drift').onclick = async () => {
+ if (run || !latest.calibrated) return;
+ const current = {phase: 'drift', index: null, session: null};
+ run = current;
+ $('calibration').hidden = false; $('cursor').hidden = true;
+ const point = [.5, .5];
+ try {
+  show('드리프트 보정 · 중앙 점을 바라보세요.', point);
+  await pause(900);
+  if (run !== current) return;
+  const result = await cal({action: 'drift', target: point});
+  $('result').textContent = `드리프트 보정 완료 · 화면 오프셋 가로 ${result.offset[0].toFixed(3)}, 세로 ${result.offset[1].toFixed(3)}`;
+ } catch (error) { $('result').textContent = error.message; }
+ finally { if (run === current) { run = null; $('calibration').hidden = true; } }
 };
 async function poll() {
  try {
@@ -292,6 +318,11 @@ async function poll() {
   const viewport = latest.calibration_viewport;
   const matches = !viewport || (viewport.width === innerWidth && viewport.height === innerHeight);
   $('cursor').hidden = Boolean(run) || !latest.valid || !matches || age > 350;
+  $('drift').hidden = !latest.calibrated;
+  drawRegions(latest.grid);
+  $('regions').hidden = !$('show-regions').checked || Boolean(run) || !latest.calibrated;
+  [...$('regions').children].forEach((cell, i) => cell.classList.toggle('active',
+   Boolean(latest.region) && !$('cursor').hidden && i === latest.region[1] * latest.grid[0] + latest.region[0]));
   if (!$('cursor').hidden) { $('cursor').style.left = latest.x * innerWidth + 'px'; $('cursor').style.top = latest.y * innerHeight + 'px'; }
  } catch (error) {
   latest = {};

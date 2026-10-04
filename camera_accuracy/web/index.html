@@ -16,9 +16,10 @@ h1{font-size:19px;margin:0}main{padding:24px;max-width:760px}#preview{width:320p
 #calpreview{width:150px;max-width:25vw;aspect-ratio:4/3;object-fit:contain}#message{margin-top:0}small{color:#b3c4d7}
 .record-controls{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.record-controls button{font-size:14px;padding:7px 10px}.record-status{display:block;color:#b3c4d7;font-size:13px;white-space:pre-wrap}.record-status.active{color:#ffcc66}.record-status.error{color:#ff8f8f}
 #preview-wrap{position:relative;width:320px;max-width:100%;aspect-ratio:4/3;touch-action:none}#roi-box{position:absolute;border:2px solid #ffcc66;pointer-events:none}#preview-wrap.selecting{cursor:crosshair}label{display:inline-block;margin:6px 8px 6px 0}input,select{font:inherit;color:inherit;background:#24354a;border:1px solid #8aa5bb;border-radius:4px;padding:4px}input{width:76px}details{margin:16px 0}#setup-message{white-space:pre-wrap;color:#ffcc66}
+#regions{position:fixed;inset:0;display:grid;pointer-events:none;z-index:1}#regions div{border:1px solid #ffffff22;transition:background .15s}#regions div.active{background:#ffcc6640;border-color:#ffcc66aa}
 @media(max-height:500px){#calpreview{width:90px}#panel{padding:8px}}
 </style>
-<header><h1>눈 카메라 · 정확도 테스트</h1><button id="start">1 → 9 → 4 시작</button><button id="fullscreen">전체 화면</button><a href="/api/report" id="download" download="eye-accuracy.json">진단 JSON 저장</a></header>
+<header><h1>눈 카메라 · 정확도 테스트</h1><button id="start">1 → 9 → 4 시작</button><button id="fullscreen">전체 화면</button><button id="drift" hidden>드리프트 보정 · 중앙 점</button><label><input id="show-regions" type="checkbox" style="width:auto">영역 표시</label><a href="/api/report" id="download" download="eye-accuracy.json">진단 JSON 저장</a></header>
 <main>
  <p id="source-status" role="status">입력 소스 확인 중…</p>
  <div class="record-controls">
@@ -49,6 +50,7 @@ h1{font-size:19px;margin:0}main{padding:24px;max-width:760px}#preview{width:320p
  <pre id="status" aria-live="off">카메라 연결 대기</pre>
  <small>타원은 동공 원판의 투영 모델입니다. 가려진 부분의 추정은 실험 단계입니다. RITnet 색상: 초록 동공 · 파랑 홍채 · 갈색 흰자. 검출 품질은 방법별 의미가 다릅니다. 화면 정확도는 대각선 검증에서 확인합니다.</small>
 </main>
+<div id="regions" hidden aria-hidden="true"></div>
 <div id="cursor" hidden></div>
 <section id="calibration" role="dialog" aria-modal="true" aria-label="1·9·4 시선 보정" hidden>
  <div id="dot" hidden></div>

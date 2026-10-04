@@ -1,0 +1,210 @@
+{
+ "real": {
+  "source": "diagnostics/20261002T071853Z-0058e7f6/summary.json",
+  "pupil_span_320x240": {
+   "horizontal_px": 56.373109181722,
+   "vertical_px": 10.336917877197266
+  },
+  "modes": {
+   "original: quadratic + distance 0.12": {
+    "loo_hits": 1,
+    "loo_abs_error_mean": [
+     0.12,
+     0.345
+    ],
+    "training_fit": {
+     "passed": false,
+     "error": "전체 9점 보정 오차 0.195 / 기준 거리 0.120 · 가장 큰 오차는 6번 목표입니다. 실패가 반복되면 취소하고 9점부터 다시 보정하세요"
+    },
+    "training_fit_robust": {
+     "passed": false,
+     "error": "전체 9점 보정 오차 0.195 / 기준 거리 0.120 · 가장 큰 오차는 6번 목표입니다. 실패가 반복되면 취소하고 9점부터 다시 보정하세요"
+    }
+   },
+   "coarse: affine + 3x3 region": {
+    "loo_hits": 4,
+    "loo_abs_error_mean": [
+     0.085,
+     0.237
+    ],
+    "training_fit": {
+     "passed": false,
+     "error": "전체 9점 보정 오차 0.306 / 기준 가로 0.167 · 세로 0.167 (3×3 영역) · 가장 큰 오차는 3번 목표입니다. 실패가 반복되면 취소하고 9점부터 다시 보정하세요"
+    },
+    "training_fit_robust": {
+     "passed": false,
+     "error": "전체 9점 보정 오차 0.306 / 기준 가로 0.167 · 세로 0.167 (3×3 영역) · 가장 큰 오차는 3번 목표입니다. 실패가 반복되면 취소하고 9점부터 다시 보정하세요"
+    }
+   },
+   "coarse: affine + 3x2 region": {
+    "loo_hits": 5,
+    "loo_abs_error_mean": [
+     0.085,
+     0.237
+    ],
+    "training_fit": {
+     "passed": false,
+     "error": "전체 9점 보정 오차 0.306 / 기준 가로 0.167 · 세로 0.250 (3×2 영역) · 가장 큰 오차는 3번 목표입니다. 실패가 반복되면 취소하고 9점부터 다시 보정하세요"
+    },
+    "training_fit_robust": {
+     "passed": true,
+     "excluded_point": 2,
+     "fit_error": 0.23
+    }
+   }
+  }
+ },
+ "simulation": {
+  "original: quadratic + distance 0.12": [
+   {
+    "capture": "320x240",
+    "noise_px": 1.0,
+    "bottom_row": 0.9,
+    "full_1_9_4_pass_rate": 0.364
+   },
+   {
+    "capture": "320x240",
+    "noise_px": 1.0,
+    "bottom_row": 0.8,
+    "full_1_9_4_pass_rate": 0.334
+   },
+   {
+    "capture": "320x240",
+    "noise_px": 2.0,
+    "bottom_row": 0.9,
+    "full_1_9_4_pass_rate": 0.013
+   },
+   {
+    "capture": "320x240",
+    "noise_px": 2.0,
+    "bottom_row": 0.8,
+    "full_1_9_4_pass_rate": 0.018
+   },
+   {
+    "capture": "640x480",
+    "noise_px": 1.0,
+    "bottom_row": 0.9,
+    "full_1_9_4_pass_rate": 0.956
+   },
+   {
+    "capture": "640x480",
+    "noise_px": 1.0,
+    "bottom_row": 0.8,
+    "full_1_9_4_pass_rate": 0.958
+   },
+   {
+    "capture": "640x480",
+    "noise_px": 2.0,
+    "bottom_row": 0.9,
+    "full_1_9_4_pass_rate": 0.374
+   },
+   {
+    "capture": "640x480",
+    "noise_px": 2.0,
+    "bottom_row": 0.8,
+    "full_1_9_4_pass_rate": 0.35
+   }
+  ],
+  "coarse: affine + 3x3 region": [
+   {
+    "capture": "320x240",
+    "noise_px": 1.0,
+    "bottom_row": 0.9,
+    "full_1_9_4_pass_rate": 0.817
+   },
+   {
+    "capture": "320x240",
+    "noise_px": 1.0,
+    "bottom_row": 0.8,
+    "full_1_9_4_pass_rate": 0.794
+   },
+   {
+    "capture": "320x240",
+    "noise_px": 2.0,
+    "bottom_row": 0.9,
+    "full_1_9_4_pass_rate": 0.173
+   },
+   {
+    "capture": "320x240",
+    "noise_px": 2.0,
+    "bottom_row": 0.8,
+    "full_1_9_4_pass_rate": 0.183
+   },
+   {
+    "capture": "640x480",
+    "noise_px": 1.0,
+    "bottom_row": 0.9,
+    "full_1_9_4_pass_rate": 0.999
+   },
+   {
+    "capture": "640x480",
+    "noise_px": 1.0,
+    "bottom_row": 0.8,
+    "full_1_9_4_pass_rate": 1.0
+   },
+   {
+    "capture": "640x480",
+    "noise_px": 2.0,
+    "bottom_row": 0.9,
+    "full_1_9_4_pass_rate": 0.806
+   },
+   {
+    "capture": "640x480",
+    "noise_px": 2.0,
+    "bottom_row": 0.8,
+    "full_1_9_4_pass_rate": 0.815
+   }
+  ],
+  "coarse: affine + 3x2 region": [
+   {
+    "capture": "320x240",
+    "noise_px": 1.0,
+    "bottom_row": 0.9,
+    "full_1_9_4_pass_rate": 0.985
+   },
+   {
+    "capture": "320x240",
+    "noise_px": 1.0,
+    "bottom_row": 0.8,
+    "full_1_9_4_pass_rate": 0.988
+   },
+   {
+    "capture": "320x240",
+    "noise_px": 2.0,
+    "bottom_row": 0.9,
+    "full_1_9_4_pass_rate": 0.612
+   },
+   {
+    "capture": "320x240",
+    "noise_px": 2.0,
+    "bottom_row": 0.8,
+    "full_1_9_4_pass_rate": 0.608
+   },
+   {
+    "capture": "640x480",
+    "noise_px": 1.0,
+    "bottom_row": 0.9,
+    "full_1_9_4_pass_rate": 1.0
+   },
+   {
+    "capture": "640x480",
+    "noise_px": 1.0,
+    "bottom_row": 0.8,
+    "full_1_9_4_pass_rate": 1.0
+   },
+   {
+    "capture": "640x480",
+    "noise_px": 2.0,
+    "bottom_row": 0.9,
+    "full_1_9_4_pass_rate": 0.988
+   },
+   {
+    "capture": "640x480",
+    "noise_px": 2.0,
+    "bottom_row": 0.8,
+    "full_1_9_4_pass_rate": 0.985
+   }
+  ]
+ },
+ "scope": "Part A: real centres, leave-one-out only (no independent validation in that session). Part B: simulation with stated assumptions; not a measurement."
+}

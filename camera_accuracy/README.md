@@ -100,6 +100,8 @@ camera_accuracy/.venv/bin/python -m camera_accuracy.inspect_baseline --output /t
 
 같은 공개 영상의 검출 결과·처리 시간을 다시 비교하려면 `camera_accuracy/.venv/bin/python -m camera_accuracy.compare_detectors`를 실행합니다. 영상 재생은 검출/미리보기 확인용이며 이 모드에서는 보정 시작을 차단합니다. 녹화 버튼도 재생 파일을 다시 저장한다는 뜻을 명시합니다. 화면 점에 맞춰 녹화된 영상이 아니므로 보정 성공이나 시선 정확도를 측정할 수 없습니다. 자동 검사는 합성 입력의 9점→4점 순서·실패 재시도·취소, 실제 1.2초 수집, 퇴화 회귀 입력, 기존 추정 코드와의 일치, 녹화 영상 처리 경로, 기록 초기화 독립성, AVI 재생/프레임 수, 로그와 영상의 `seq` 일치, ZIP 다운로드를 확인합니다.
 
+**큰 영역 우선 보정:** `bash camera_accuracy/start.sh --engine deepvog-verified --coarse --grid 3x2 --capture-size 640x480` — affine 매핑, 영역 기준 검증, 아래 줄 0.8, 드리프트 보정, 영역 표시. 근거와 한계는 [COARSE_GAZE_20261004.md](COARSE_GAZE_20261004.md)를 보세요.
+
 **안정 우선 경로:** `bash camera_accuracy/start.sh --engine deepvog-verified` — Orlosky 후보를 DeepVOG로 동공인지 검증하고 3프레임 지연 필터로 튀는 값을 버립니다. 결과와 한계는 [VERIFIED_DEEPVOG_20261004.md](VERIFIED_DEEPVOG_20261004.md)를 보세요.
 
 검진 결과와 비교 실험 순서는 [ACCURACY_REVIEW.md](ACCURACY_REVIEW.md)에 있습니다.

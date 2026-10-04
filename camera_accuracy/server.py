@@ -23,13 +23,17 @@ from aiohttp import web
 import cv2
 import numpy as np
 
-from .gaze import POINTS, VALIDATION_POINTS, Stabilizer, fit_calibration, predict, features
+from .gaze import (POINTS, VALIDATION_POINTS, MAPPINGS, VALIDATIONS, RegionTracker, Stabilizer, fit_calibration,
+                   grid_shape, make_points, predict, features, tolerance_text, validation_passed)
 from .recording import Recording
 from .camera_device import select_usb_camera
 
 HERE = Path(__file__).parent
 RUNTIME_KEY = web.AppKey('runtime', object)
-DEFAULTS = dict(smoothing_ms=80, max_speed=4., confidence=.65, flip=False, engine='orlosky', focal_length=560.)
+DEFAULTS = dict(smoothing_ms=80, max_speed=4., confidence=.65, flip=False, engine='orlosky', focal_length=560.,
+                # Calibration contract. Defaults keep the original 1->9->4 behaviour; --coarse switches all four.
+                mapping='quadratic', validation='distance', grid=[3, 3], bottom_row=.9, robust_fit=False,
+                capture_size=[320, 240], drift_max=.2)
 LOG = logging.getLogger('camera-accuracy')
 ENGINES = ('orlosky', 'orlosky-stable', 'orlosky-stable-3d', 'orlosky-flow', 'orlosky-ecc', 'orlosky-tapir',
            'deepvog', 'deepvog-ecc', 'deepvog-verified', 'ritnet', 'pure-st', 'pupil-2d', 'pupil-3d', 'pure', 'pure-3d', 'else')
@@ -82,6 +86,9 @@ class Runtime:
         self.tracker = tracker
         self.lock = asyncio.Lock()  # All tracker globals are owned by this single worker.
         self.filter = Stabilizer()
+        self.region = RegionTracker(config.get('grid', [3, 3]))
+        self.cell = None
+        self.plan_points = make_points(config.get('bottom_row', .9))
         self.connected = False
         self.camera_info = {}
         self.attempts = []
@@ -99,6 +106,7 @@ class Runtime:
         self.model = self.candidate = None
         self.points = []
         self.validation_errors = []
+        self.validation_passes = []
         self.calibration_viewport = None
         self.collecting = None
         self.collecting_details = None
@@ -130,7 +138,9 @@ class Runtime:
                     tracker_details=self.tracker_details,
                     direction_frame=self.tracker_details.get('direction_frame'),
                     origin_unit=self.tracker_details.get('origin_unit'),
-                    calibration_viewport=self.calibration_viewport if self.model else None)
+                    calibration_viewport=self.calibration_viewport if self.model else None,
+                    region=self.cell if valid else None, grid=list(grid_shape(self.config.get('grid', [3, 3]))),
+                    drift_offset=self.model.get('offset') if self.model else None)
 
     def analyze(self, image):
         if self.reset_pending:
@@ -188,6 +198,7 @@ class Runtime:
                 tracker_details=self.tracker_details.copy()))
         self.xy = self.filter.update(predict(self.model, self.raw), now,
                                      self.config['smoothing_ms'] / 1000, self.config['max_speed']) if self.model else None
+        self.cell = self.region.update(self.xy)
 
     async def capture(self):
         if self.collecting is not None:
@@ -247,7 +258,7 @@ def create_app(config=None, tracker=None, source=0, fps=20, camera_enabled=True,
         return dict(engine=runtime.config['engine'], tracker_metadata=dict(getattr(runtime.tracker, 'metadata', {})),
                     detector_settings=dict(getattr(runtime.tracker, 'settings', {})), source=str(source), config=dict(runtime.config),
                     camera=dict(runtime.camera_info), status=runtime.packet(),
-                    points=POINTS, validation_points=VALIDATION_POINTS, model=runtime.report_model,
+                    points=runtime.plan_points, validation_points=VALIDATION_POINTS, model=runtime.report_model,
                     viewport=runtime.report_viewport, tracker_sha256=hashlib.sha256(
                         (HERE / ('tracking/Orlosky3DEyeTracker.py' if runtime.config['engine'] == 'orlosky' else
                          'verified.py' if runtime.config['engine'] == 'deepvog-verified' else
@@ -408,6 +419,7 @@ def create_app(config=None, tracker=None, source=0, fps=20, camera_enabled=True,
                     runtime.model = runtime.candidate = None
                     runtime.points = []
                     runtime.validation_errors = []
+                    runtime.validation_passes = []
                     runtime.calibration_viewport = None
                     runtime.locked = False
                     runtime.filter.reset()
@@ -420,6 +432,7 @@ def create_app(config=None, tracker=None, source=0, fps=20, camera_enabled=True,
                     runtime.calibrating = runtime.locked = True
                     runtime.points = []
                     runtime.validation_errors = []
+                    runtime.validation_passes = []
                     runtime.calibration_viewport = viewport
                     runtime.report_viewport = viewport
                     runtime.report_model = None
@@ -428,6 +441,31 @@ def create_app(config=None, tracker=None, source=0, fps=20, camera_enabled=True,
                     if hasattr(runtime.tracker, 'clear_reference'):
                         await work(runtime.tracker.clear_reference)
             return web.json_response({'session_id': runtime.session})
+        if action == 'drift':
+            # Drift correction: look at one known point after calibration; only a screen offset changes.
+            if runtime.model is None or runtime.calibrating:
+                raise ValueError('보정을 완료한 뒤 드리프트 보정을 하세요')
+            target = data.get('target', [.5, .5])
+            if not isinstance(target, list) or len(target) != 2:
+                raise ValueError('목표 좌표 2개가 필요합니다')
+            target = np.array([number(value, 0, 1) for value in target])
+            raw, record = await capture_point(action, 0, target.tolist(), session)
+            async with runtime.lock:
+                if session != runtime.session or runtime.model is None:
+                    raise ValueError('보정이 초기화되었습니다')
+                base = predict(dict(runtime.model, offset=[0., 0.]), raw)
+                offset = target - base
+                record.update(predicted_without_offset=base.tolist(), offset=offset.tolist())
+                if np.any(np.abs(offset) > config['drift_max']):
+                    record.update(passed=False, error='offset_too_large')
+                    recording.event('drift_correction', result=record, session_id=session)
+                    raise ValueError(f'어긋남이 너무 큽니다 (가로 {offset[0]:+.2f}, 세로 {offset[1]:+.2f}). 착용 위치가 바뀌었으면 처음부터 다시 보정하세요')
+                runtime.model = dict(runtime.model, offset=offset.tolist())
+                runtime.report_model = runtime.model
+                runtime.filter.reset()
+                record['passed'] = True
+                recording.event('drift_correction', result=record, session_id=session)
+            return web.json_response({'offset': offset.tolist()})
         if not runtime.calibrating or data.get('session_id') != session:
             raise ValueError('보정 세션이 만료되었습니다')
         if action == 'neutral':
@@ -448,13 +486,14 @@ def create_app(config=None, tracker=None, source=0, fps=20, camera_enabled=True,
             index = number(data['index'], 0, 8, integer=True)
             if index != len(runtime.points):
                 raise ValueError('지점 순서가 맞지 않습니다')
-            raw, record = await capture_point(action, index, POINTS[index], session)
+            raw, record = await capture_point(action, index, runtime.plan_points[index], session)
             if session != runtime.session:
                 raise ValueError('보정이 취소되었습니다')
             runtime.points.append(raw)
             if len(runtime.points) == 9:
                 try:
-                    runtime.candidate = fit_calibration(runtime.points, POINTS)
+                    runtime.candidate = fit_calibration(runtime.points, runtime.plan_points, config['mapping'], config['validation'],
+                                                        config['grid'], config['robust_fit'])
                     runtime.report_model = runtime.candidate
                 except ValueError as error:
                     record.update(passed=False, error=str(error))
@@ -480,26 +519,32 @@ def create_app(config=None, tracker=None, source=0, fps=20, camera_enabled=True,
             estimate = predict(runtime.candidate, raw)
             delta = estimate - target
             error = float(np.linalg.norm(delta))
-            record.update(predicted=estimate.tolist(), error_norm=error, delta=delta.tolist(), passed=error <= .12)
+            ok = validation_passed(delta, config['validation'], config['grid'])
+            record.update(predicted=estimate.tolist(), error_norm=error, delta=delta.tolist(), passed=ok,
+                          validation_mode=config['validation'])
             viewport = runtime.calibration_viewport
             if viewport:
                 record['error_px'] = float(np.linalg.norm(delta * [viewport['width'], viewport['height']]))
-            if error > .12 and not collect_all:
-                record['error'] = f'검증 오차 {error:.3f} > 0.120 · 같은 점 재시도 또는 9점부터 재보정'
+            if not ok and not collect_all:
+                record['error'] = (f'검증 오차 가로 {abs(delta[0]):.3f} · 세로 {abs(delta[1]):.3f} / 기준 '
+                                   f'{tolerance_text(config["validation"], config["grid"])} · 같은 점 재시도 또는 9점부터 재보정')
                 recording.event('validation_result', result=record)
                 raise ValueError(record['error'])
             recording.event('validation_result', result=record)
             runtime.validation_errors.append(error)
+            runtime.validation_passes.append(ok)
             if index < len(VALIDATION_POINTS) - 1:
                 return web.json_response({'calibrated': False, 'validation_error': error,
                                           'validation_collected': len(runtime.validation_errors)})
-            passed = max(runtime.validation_errors) <= .12
+            passed = all(runtime.validation_passes)
             runtime.model = runtime.candidate if passed else None
             runtime.calibrating = False
             runtime.filter.reset()
             recording.event('validation_summary', errors=runtime.validation_errors, passed=passed, session_id=session)
             return web.json_response({'calibrated': passed, 'validation_error': max(runtime.validation_errors),
-                                      'validation_errors': runtime.validation_errors})
+                                      'validation_errors': runtime.validation_errors, 'validation_passes': runtime.validation_passes,
+                                      'tolerance': tolerance_text(config['validation'], config['grid']),
+                                      'excluded_point': runtime.candidate.get('excluded_point')})
         raise ValueError('알 수 없는 보정 명령')
 
     async def page(request):
@@ -509,7 +554,9 @@ def create_app(config=None, tracker=None, source=0, fps=20, camera_enabled=True,
         return web.FileResponse(HERE / 'web' / 'app.js')
 
     async def plan(request):
-        return web.json_response(dict(points=POINTS, validation_points=VALIDATION_POINTS))
+        return web.json_response(dict(points=runtime.plan_points, validation_points=VALIDATION_POINTS,
+            mapping=config['mapping'], validation=config['validation'], grid=list(grid_shape(config['grid'])),
+            tolerance=tolerance_text(config['validation'], config['grid'])))
 
     async def status(request):
         times = [t for t in runtime.frame_times if time.monotonic() - t < 2]
@@ -587,7 +634,7 @@ def create_app(config=None, tracker=None, source=0, fps=20, camera_enabled=True,
 
     async def record_event(request):
         data = await request.json()
-        if not isinstance(data, dict) or data.get('phase') not in ('fit', 'model', 'neutral', 'sample', 'validate', 'complete', 'cancel'):
+        if not isinstance(data, dict) or data.get('phase') not in ('fit', 'model', 'neutral', 'sample', 'validate', 'complete', 'cancel', 'drift'):
             raise ValueError('유효한 화면 단계가 필요합니다')
         point = data.get('point')
         if point is not None:
@@ -638,11 +685,11 @@ def create_app(config=None, tracker=None, source=0, fps=20, camera_enabled=True,
                         if not await run(cap.isOpened):
                             raise RuntimeError(f'카메라 {source}를 열 수 없습니다. 번호 / macOS 카메라 권한을 확인하세요')
                         if isinstance(source, int):
-                            for prop, value in ((cv2.CAP_PROP_FRAME_WIDTH, 320), (cv2.CAP_PROP_FRAME_HEIGHT, 240), (cv2.CAP_PROP_FPS, 30)):
+                            for prop, value in ((cv2.CAP_PROP_FRAME_WIDTH, config['capture_size'][0]), (cv2.CAP_PROP_FRAME_HEIGHT, config['capture_size'][1]), (cv2.CAP_PROP_FPS, 30)):
                                 await run(cap.set, prop, value)
                         runtime.camera_info = dict(source=str(capture_source), device=selected,
                             mode='video' if isinstance(source, str) else 'camera',
-                            requested_size=[320, 240] if isinstance(source, int) else None,
+                            requested_size=list(config['capture_size']) if isinstance(source, int) else None,
                             capture_width=await run(cap.get, cv2.CAP_PROP_FRAME_WIDTH),
                             capture_height=await run(cap.get, cv2.CAP_PROP_FRAME_HEIGHT),
                             reported_fps=await run(cap.get, cv2.CAP_PROP_FPS))
@@ -749,10 +796,33 @@ def main():
     parser.add_argument('--confidence', type=float, default=.65)
     parser.add_argument('--smoothing-ms', type=float, default=80)
     parser.add_argument('--max-speed', type=float, default=4.)
+    parser.add_argument('--coarse', action='store_true',
+                        help='큰 영역 우선 보정: affine 매핑 + 영역 검증 + 아래 줄 0.8 + 이상한 1점 제외 (개별 옵션으로 덮어쓰기 가능)')
+    parser.add_argument('--mapping', choices=MAPPINGS, help='화면 매핑식 (기본 quadratic, --coarse는 affine)')
+    parser.add_argument('--validation', choices=VALIDATIONS, help='distance: 거리 0.12 / region: 영역 격자 안에 들어오면 통과')
+    parser.add_argument('--grid', help='영역 격자 열x행, 예: 3x3, 3x2 (기본 3x3)')
+    parser.add_argument('--bottom-row', type=float, help='9점 보정 아래 줄 y 위치 (기본 0.9, --coarse는 0.8)')
+    parser.add_argument('--capture-size', choices=('320x240', '640x480'), default='320x240',
+                        help='카메라 요청 해상도. GC0308은 640x480 센서이므로 세로 신호를 키우려면 640x480')
     args = parser.parse_args()
+    grid = [3, 3]
+    if args.grid:
+        try:
+            grid = [int(v) for v in args.grid.lower().split('x')]
+            if len(grid) != 2 or not all(1 <= v <= 6 for v in grid):
+                raise ValueError
+        except ValueError:
+            parser.error('--grid는 3x3, 3x2처럼 1–6 범위의 열x행으로 입력하세요')
+    bottom = args.bottom_row if args.bottom_row is not None else (.8 if args.coarse else .9)
+    if not .6 <= bottom <= .95:
+        parser.error('--bottom-row는 0.6–0.95 범위입니다')
     config = dict(flip=args.flip, confidence=number(args.confidence, .1, 1), engine=args.engine,
                   focal_length=number(args.focal_length, 100, 3000),
-                  smoothing_ms=number(args.smoothing_ms, 10, 500), max_speed=number(args.max_speed, .1, 20))
+                  smoothing_ms=number(args.smoothing_ms, 10, 500), max_speed=number(args.max_speed, .1, 20),
+                  mapping=args.mapping or ('affine' if args.coarse else 'quadratic'),
+                  validation=args.validation or ('region' if args.coarse else 'distance'),
+                  grid=grid, bottom_row=bottom, robust_fit=args.coarse,
+                  capture_size=[int(v) for v in args.capture_size.split('x')])
     if args.camera < 0 or not 1 <= args.port <= 65535:
         parser.error('카메라는 0 이상, 포트는 1–65535 범위입니다')
     if args.video and not Path(args.video).is_file():
